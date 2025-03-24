@@ -2,25 +2,24 @@
 
 # Update & Install Dependencies
 sudo apt update -y
-sudo apt install -y docker.io docker-compose
+sudo apt install -y docker.io docker-compose curl  # Ensure curl is installed
 sudo docker --version
 sudo docker-compose --version
+
 # Start Docker Service
 sudo systemctl start docker
 sudo systemctl enable docker
 
 # Allow Docker without sudo (for future logins)
 sudo usermod -aG docker ubuntu
+# The usermod change will take effect only after the next login, so using sudo for now
 sudo newgrp docker
 
 # Create app folder
 mkdir -p ~/app && cd ~/app
 
-# Wait for Docker to be fully ready
+# Wait for Docker to be fully ready (you can also use `docker info` instead)
 sleep 10
-
-# Create app folder
-mkdir -p ~/app && cd ~/app
 
 # Create Docker Compose File
 sudo cat <<EOF > docker-compose.yml
@@ -58,4 +57,4 @@ EOF
 sudo docker-compose up -d
 
 # Add a message about docker group
-echo "NOTE: Docker group changes will take effect on next login. For now, using sudo for docker commands."
+echo "NOTE: Docker group changes will take effect on the next login. For now, using sudo for docker commands."
