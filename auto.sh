@@ -12,8 +12,8 @@ sudo systemctl enable docker
 
 # Allow Docker without sudo (for future logins)
 sudo usermod -aG docker ubuntu
-# The usermod change will take effect only after the next login, so using sudo for now
-sudo newgrp docker
+# Reload the bash session to apply group changes
+exec su - ubuntu
 
 # Create app folder
 mkdir -p ~/app && cd ~/app
