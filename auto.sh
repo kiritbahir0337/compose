@@ -4,122 +4,101 @@
 set -e
 exec 1> >(logger -s -t $(basename $0)) 2>&1
 
-# Function to get public IP
+# Function to get public IP with retries
 get_public_ip() {
-    for i in {1..5}; do
-        PUBLIC_IP=$(curl -s ifconfig.me)
-        if [[ ! -z "$PUBLIC_IP" ]]; then
+    local max_retries=5
+    local retry_count=0
+    local wait_time=5
+
+    while [ $retry_count -lt $max_retries ]; do
+        PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || curl -s https://api.ipify.org)
+        if [ ! -z "$PUBLIC_IP" ]; then
             echo "$PUBLIC_IP"
             return 0
         fi
-        echo "Attempt $i: Waiting for public IP..."
-        sleep 5
+        retry_count=$((retry_count + 1))
+        echo "Failed to get public IP. Retrying in $wait_time seconds... (Attempt $retry_count/$max_retries)"
+        sleep $wait_time
     done
+    echo "Failed to get public IP after $max_retries attempts"
     return 1
 }
 
-# Update & Install Dependencies
-echo "Updating system and installing dependencies..."
-sudo apt update -y
-sudo apt install -y docker.io docker-compose curl
-sudo docker --version
-sudo docker-compose --version
+# Update system and install dependencies
+apt-get update
+apt-get install -y docker.io docker-compose curl
 
-# Start Docker Service
-echo "Starting Docker service..."
-sudo systemctl start docker
-sudo systemctl enable docker
+# Start Docker service
+systemctl start docker
+systemctl enable docker
 
-# Allow Docker without sudo
-sudo usermod -aG docker ubuntu
+# Allow ubuntu user to run docker commands without sudo
+usermod -aG docker ubuntu
 
-# Create app folder
-mkdir -p /home/ubuntu/app && cd /home/ubuntu/app
+# Create application directory
+mkdir -p /app
+cd /app
 
-# Wait for Docker to be fully ready
-echo "Waiting for Docker to be ready..."
-for i in {1..30}; do
-    if sudo docker info > /dev/null 2>&1; then
-        echo "Docker is ready!"
-        break
-    fi
-    echo "Waiting for Docker to start... ($i/30)"
-    sleep 2
+# Wait for Docker to be ready
+while ! docker info > /dev/null 2>&1; do
+    echo "Waiting for Docker to be ready..."
+    sleep 5
 done
 
-# Get public IP with retry
-echo "Getting public IP..."
+# Get public IP
 PUBLIC_IP=$(get_public_ip)
-if [[ -z "$PUBLIC_IP" ]]; then
-    echo "Failed to get public IP"
+if [ $? -ne 0 ]; then
+    echo "Failed to get public IP. Exiting."
     exit 1
 fi
-echo "Public IP is: $PUBLIC_IP"
 
-# Create Docker Compose File
-echo "Creating docker-compose.yml..."
-cat <<EOF > docker-compose.yml
-version: "3.8"
+echo "Public IP: $PUBLIC_IP"
 
+# Create docker-compose.yml
+cat > docker-compose.yml <<EOL
+version: '3'
 services:
   backend:
-    image: kiritahir/hello-devops-backend:latest
     container_name: backend-container
+    image: jaydanid/backend:latest
     ports:
       - "8000:8000"
     environment:
-      - CORS_ORIGIN=http://${PUBLIC_IP}
+      - HOST=0.0.0.0
+      - PORT=8000
     restart: always
-    networks:
-      - app-network
 
   frontend:
-    image: kiritahir/hello-devops-frontend:latest
     container_name: frontend-container
-    environment:
-      - VITE_BACKEND_URL=http://${PUBLIC_IP}:8000
+    image: jaydanid/frontend:latest
     ports:
       - "80:80"
+    environment:
+      - VITE_BACKEND_URL=http://${PUBLIC_IP}:8000
     depends_on:
       - backend
     restart: always
-    networks:
-      - app-network
+EOL
 
-networks:
-  app-network:
-    driver: bridge
-EOF
+# Stop and remove existing containers and volumes
+docker-compose down -v || true
 
-# Pull images first
-echo "Pulling Docker images..."
-sudo docker-compose pull
+# Pull latest images
+docker-compose pull
 
-# Run Docker Compose
-echo "Starting containers..."
-sudo docker-compose up -d
+# Start services
+docker-compose up -d
 
 # Verify environment variables
 echo "Verifying environment variables..."
-echo "Frontend environment:"
-sudo docker exec frontend-container env | grep VITE_BACKEND_URL
-echo "Backend environment:"
-sudo docker exec backend-container env | grep CORS_ORIGIN
+docker exec frontend-container env | grep VITE_BACKEND_URL
+docker exec backend-container env | grep PORT
 
-# Verify containers are running
-echo "Verifying containers..."
-sleep 10
-if sudo docker ps | grep -q 'backend-container' && sudo docker ps | grep -q 'frontend-container'; then
-    echo "Containers are running successfully!"
-    echo "Frontend URL: http://$PUBLIC_IP"
-    echo "Backend URL: http://$PUBLIC_IP:8000"
-else
-    echo "Container verification failed!"
-    sudo docker ps
-    sudo docker-compose logs
-fi
+# Wait for services to be ready
+echo "Waiting for services to be ready..."
+timeout 60s bash -c 'until curl -s http://localhost:8000/start-deployment > /dev/null; do sleep 5; done'
+timeout 60s bash -c 'until curl -s http://localhost > /dev/null; do sleep 5; done'
 
-# Print final status
-echo "Setup complete!"
-echo "You can access the application at: http://$PUBLIC_IP"
-echo "Backend API is available at: http://$PUBLIC_IP:8000"
+echo "Deployment completed successfully!"
+echo "Frontend URL: http://${PUBLIC_IP}"
+echo "Backend URL: http://${PUBLIC_IP}:8000"
