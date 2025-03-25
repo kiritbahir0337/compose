@@ -34,7 +34,7 @@ sudo systemctl enable docker
 sudo usermod -aG docker ubuntu
 
 # Create app folder
-mkdir -p ~/app && cd ~/app
+# mkdir -p ~/app && cd ~/app
 
 # Wait for Docker to be fully ready
 echo "Waiting for Docker to be ready..."
@@ -58,7 +58,7 @@ echo "Public IP is: $PUBLIC_IP"
 
 # Create Docker Compose File
 echo "Creating docker-compose.yml..."
-sudo cat <<EOF > docker-compose.yml
+cat <<EOF > docker-compose.yml
 version: "3.8"
 
 services:
@@ -67,6 +67,8 @@ services:
     container_name: backend-container
     ports:
       - "8000:8000"
+    environment:
+      - CORS_ORIGIN=http://${PUBLIC_IP}
     restart: always
     networks:
       - app-network
@@ -75,7 +77,7 @@ services:
     image: kiritahir/hello-devops-frontend:latest
     container_name: frontend-container
     environment:
-      - VITE_BACKEND_URL=http://$PUBLIC_IP:8000
+      - VITE_BACKEND_URL=http://${PUBLIC_IP}:8000
     ports:
       - "80:80"
     depends_on:
@@ -97,6 +99,13 @@ sudo docker-compose pull
 echo "Starting containers..."
 sudo docker-compose up -d
 
+# Verify environment variables
+echo "Verifying environment variables..."
+echo "Frontend environment:"
+sudo docker exec frontend-container env | grep VITE_BACKEND_URL
+echo "Backend environment:"
+sudo docker exec backend-container env | grep CORS_ORIGIN
+
 # Verify containers are running
 echo "Verifying containers..."
 sleep 10
@@ -110,4 +119,7 @@ else
     sudo docker-compose logs
 fi
 
+# Print final status
 echo "Setup complete!"
+echo "You can access the application at: http://$PUBLIC_IP"
+echo "Backend API is available at: http://$PUBLIC_IP:8000"
