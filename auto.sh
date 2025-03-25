@@ -34,7 +34,7 @@ sudo systemctl enable docker
 sudo usermod -aG docker ubuntu
 
 # Create app folder
-# mkdir -p ~/app && cd ~/app
+mkdir -p /home/ubuntu/app && cd /home/ubuntu/app
 
 # Wait for Docker to be fully ready
 echo "Waiting for Docker to be ready..."
