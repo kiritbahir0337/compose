@@ -60,7 +60,7 @@ version: '3'
 services:
   backend:
     container_name: backend-container
-    image: jaydanid/backend:latest
+    image: kiritahir/hello-devops-backend:latest
     ports:
       - "8000:8000"
     environment:
@@ -70,7 +70,7 @@ services:
 
   frontend:
     container_name: frontend-container
-    image: jaydanid/frontend:latest
+    image: kiritahir/hello-devops-frontend:latest
     ports:
       - "80:80"
     environment:
