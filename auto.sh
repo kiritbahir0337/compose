@@ -1,27 +1,63 @@
 #!/bin/bash
 
+# Enable error handling and logging
+set -e
+exec 1> >(logger -s -t $(basename $0)) 2>&1
+
+# Function to get public IP
+get_public_ip() {
+    for i in {1..5}; do
+        PUBLIC_IP=$(curl -s ifconfig.me)
+        if [[ ! -z "$PUBLIC_IP" ]]; then
+            echo "$PUBLIC_IP"
+            return 0
+        fi
+        echo "Attempt $i: Waiting for public IP..."
+        sleep 5
+    done
+    return 1
+}
+
 # Update & Install Dependencies
+echo "Updating system and installing dependencies..."
 sudo apt update -y
-sudo apt install -y docker.io docker-compose curl  # Ensure curl is installed
+sudo apt install -y docker.io docker-compose curl
 sudo docker --version
 sudo docker-compose --version
 
 # Start Docker Service
+echo "Starting Docker service..."
 sudo systemctl start docker
 sudo systemctl enable docker
 
-# Allow Docker without sudo (for future logins)
+# Allow Docker without sudo
 sudo usermod -aG docker ubuntu
-# Reload the bash session to apply group changes
-exec su - ubuntu
 
 # Create app folder
 mkdir -p ~/app && cd ~/app
 
-# Wait for Docker to be fully ready (you can also use `docker info` instead)
-sleep 10
+# Wait for Docker to be fully ready
+echo "Waiting for Docker to be ready..."
+for i in {1..30}; do
+    if sudo docker info > /dev/null 2>&1; then
+        echo "Docker is ready!"
+        break
+    fi
+    echo "Waiting for Docker to start... ($i/30)"
+    sleep 2
+done
+
+# Get public IP with retry
+echo "Getting public IP..."
+PUBLIC_IP=$(get_public_ip)
+if [[ -z "$PUBLIC_IP" ]]; then
+    echo "Failed to get public IP"
+    exit 1
+fi
+echo "Public IP is: $PUBLIC_IP"
 
 # Create Docker Compose File
+echo "Creating docker-compose.yml..."
 sudo cat <<EOF > docker-compose.yml
 version: "3.8"
 
@@ -39,7 +75,7 @@ services:
     image: kiritahir/hello-devops-frontend:latest
     container_name: frontend-container
     environment:
-      - VITE_BACKEND_URL=http://$(curl -s ifconfig.me):8000
+      - VITE_BACKEND_URL=http://$PUBLIC_IP:8000
     ports:
       - "80:80"
     depends_on:
@@ -53,8 +89,25 @@ networks:
     driver: bridge
 EOF
 
-# Run Docker Compose (Using sudo as user changes won't apply immediately)
+# Pull images first
+echo "Pulling Docker images..."
+sudo docker-compose pull
+
+# Run Docker Compose
+echo "Starting containers..."
 sudo docker-compose up -d
 
-# Add a message about docker group
-echo "NOTE: Docker group changes will take effect on the next login. For now, using sudo for docker commands."
+# Verify containers are running
+echo "Verifying containers..."
+sleep 10
+if sudo docker ps | grep -q 'backend-container' && sudo docker ps | grep -q 'frontend-container'; then
+    echo "Containers are running successfully!"
+    echo "Frontend URL: http://$PUBLIC_IP"
+    echo "Backend URL: http://$PUBLIC_IP:8000"
+else
+    echo "Container verification failed!"
+    sudo docker ps
+    sudo docker-compose logs
+fi
+
+echo "Setup complete!"
